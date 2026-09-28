@@ -1,1 +1,967 @@
 
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pac-Man 2 Jogadores</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+        radial-gradient(circle at center, #101b45 0%, #050816 55%, #02030a 100%);
+    color: white;
+    font-family: Arial, Helvetica, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+.game-wrapper {
+    width: min(96vw, 1000px);
+    text-align: center;
+}
+
+h1 {
+    margin: 0 0 8px;
+    font-size: clamp(28px, 5vw, 48px);
+    color: #ffe500;
+    text-shadow:
+        0 0 8px #ffe500,
+        0 0 20px rgba(255, 229, 0, .6);
+    letter-spacing: 2px;
+}
+
+.subtitle {
+    margin-bottom: 12px;
+    color: #cbd3ff;
+    font-size: 14px;
+}
+
+.hud {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.card {
+    flex: 1;
+    min-width: 180px;
+    padding: 10px 15px;
+    border: 2px solid #243cff;
+    border-radius: 12px;
+    background: rgba(7, 12, 35, .9);
+    box-shadow: 0 0 15px rgba(36, 60, 255, .25);
+}
+
+.card.pac {
+    border-color: #ffe500;
+}
+
+.card.ghost {
+    border-color: #ff3b6b;
+}
+
+.label {
+    font-size: 12px;
+    color: #aeb8e8;
+}
+
+.value {
+    font-size: 20px;
+    font-weight: bold;
+}
+
+#game {
+    position: relative;
+    margin: auto;
+    width: min(94vw, 900px);
+    aspect-ratio: 21 / 13;
+    background: #02040e;
+    border: 4px solid #163cff;
+    border-radius: 12px;
+    box-shadow:
+        0 0 12px #163cff,
+        0 0 35px rgba(22, 60, 255, .5),
+        inset 0 0 30px rgba(0, 0, 0, .9);
+    overflow: hidden;
+}
+
+canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.controls {
+    margin-top: 10px;
+    color: #9fa9d9;
+    font-size: 13px;
+}
+
+.controls b {
+    color: white;
+}
+
+.message {
+    position: absolute;
+    inset: 0;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    background: rgba(0, 0, 10, .72);
+    backdrop-filter: blur(4px);
+    z-index: 10;
+}
+
+.message.show {
+    display: flex;
+}
+
+.message h2 {
+    margin: 0 0 10px;
+    font-size: clamp(28px, 6vw, 55px);
+    color: #ffe500;
+    text-shadow: 0 0 15px currentColor;
+}
+
+.message p {
+    color: white;
+    margin: 0 0 18px;
+}
+
+button {
+    border: none;
+    border-radius: 10px;
+    padding: 12px 25px;
+    background: #ffe500;
+    color: #111;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+button:hover {
+    transform: scale(1.05);
+}
+</style>
+</head>
+
+<body>
+
+<div class="game-wrapper">
+
+    <h1>PAC-MAN DUO</h1>
+    <div class="subtitle">
+        Dois jogadores • Pegue as frutas • Fuja do fantasma
+    </div>
+
+    <div class="hud">
+        <div class="card pac">
+            <div class="label">🟡 PAC-MAN — WASD</div>
+            <div class="value">
+                Pontos: <span id="score">0</span>
+            </div>
+        </div>
+
+        <div class="card ghost">
+            <div class="label">👻 FANTASMA — SETAS</div>
+            <div class="value">
+                Frutas restantes: <span id="remaining">0</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="game">
+        <canvas id="canvas"></canvas>
+
+        <div id="message" class="message">
+            <h2 id="messageTitle">Fim!</h2>
+            <p id="messageText"></p>
+            <button onclick="resetGame()">Jogar novamente</button>
+        </div>
+    </div>
+
+    <div class="controls">
+        🟡 Pac-Man: <b>W A S D</b>
+        &nbsp; | &nbsp;
+        👻 Fantasma: <b>↑ ↓ ← →</b>
+        &nbsp; | &nbsp;
+        <b>R</b> para reiniciar
+    </div>
+
+</div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+const COLS = 21;
+const ROWS = 13;
+
+let cell;
+let gameOver = false;
+let lastTime = 0;
+
+/*
+    # = parede
+    . = comida
+    espaço = corredor vazio
+*/
+const map = [
+    "#####################",
+    "#...................#",
+    "#.###.#####.#####.#.#",
+    "#...................#",
+    "#.###.#.###.#.###.#.#",
+    "#.....#.....#.....#.#",
+    "#####.#.###.#.###.###",
+    "#.....#.....#.....#.#",
+    "#.###.#.###.#.###.#.#",
+    "#...................#",
+    "#.###.#####.#####.###",
+    "#...................#",
+    "#####################"
+];
+
+/*
+    Direções.
+*/
+const DIR = {
+    UP:    {x: 0, y: -1},
+    DOWN:  {x: 0, y: 1},
+    LEFT:  {x: -1, y: 0},
+    RIGHT: {x: 1, y: 0},
+    NONE:  {x: 0, y: 0}
+};
+
+const pacman = {
+    x: 1.5,
+    y: 1.5,
+    dir: {...DIR.NONE},
+    speed: 4.2,
+    radius: 0.34,
+    keys: {
+        up: false,
+        down: false,
+        left: false,
+        right: false
+    },
+    color: "#ffe500",
+    mouth: 0
+};
+
+const ghost = {
+    x: 19.5,
+    y: 11.5,
+    dir: {...DIR.NONE},
+    speed: 4.2,
+    radius: 0.34,
+    keys: {
+        up: false,
+        down: false,
+        left: false,
+        right: false
+    },
+    color: "#ff315b"
+};
+
+let dots = [];
+let fruits = [];
+
+const fruitTypes = [
+    {emoji: "🍒", value: 100},
+    {emoji: "🍓", value: 150},
+    {emoji: "🍊", value: 200},
+    {emoji: "🍎", value: 250}
+];
+
+let score = 0;
+
+/* =========================
+   CANVAS
+========================= */
+
+function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+
+    canvas.width = Math.floor(rect.width * devicePixelRatio);
+    canvas.height = Math.floor(rect.height * devicePixelRatio);
+
+    ctx.setTransform(
+        devicePixelRatio,
+        0,
+        0,
+        devicePixelRatio,
+        0,
+        0
+    );
+
+    cell = rect.width / COLS;
+}
+
+window.addEventListener("resize", resizeCanvas);
+
+
+/* =========================
+   MAPA
+========================= */
+
+function isWall(col, row) {
+    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) {
+        return true;
+    }
+
+    return map[row][col] === "#";
+}
+
+function canStand(x, y) {
+
+    const r = 0.30;
+
+    const left   = Math.floor(x - r);
+    const right  = Math.floor(x + r);
+    const top    = Math.floor(y - r);
+    const bottom = Math.floor(y + r);
+
+    if (isWall(left, top)) return false;
+    if (isWall(right, top)) return false;
+    if (isWall(left, bottom)) return false;
+    if (isWall(right, bottom)) return false;
+
+    return true;
+}
+
+
+/*
+    Verifica se o personagem pode andar
+    sem encostar na parede.
+*/
+function canMove(player, dir, distance) {
+
+    if (dir.x === 0 && dir.y === 0) {
+        return true;
+    }
+
+    const nx = player.x + dir.x * distance;
+    const ny = player.y + dir.y * distance;
+
+    return canStand(nx, ny);
+}
+
+
+/* =========================
+   CONTROLES
+========================= */
+
+function setKey(player, key, value) {
+
+    if (key === "up") player.keys.up = value;
+    if (key === "down") player.keys.down = value;
+    if (key === "left") player.keys.left = value;
+    if (key === "right") player.keys.right = value;
+}
+
+
+/*
+    Escolhe somente UMA direção.
+    Isso impede movimento diagonal.
+*/
+function getPressedDirection(player) {
+
+    if (player.keys.up) {
+        return {...DIR.UP};
+    }
+
+    if (player.keys.down) {
+        return {...DIR.DOWN};
+    }
+
+    if (player.keys.left) {
+        return {...DIR.LEFT};
+    }
+
+    if (player.keys.right) {
+        return {...DIR.RIGHT};
+    }
+
+    return {...DIR.NONE};
+}
+
+
+document.addEventListener("keydown", e => {
+
+    const key = e.key.toLowerCase();
+
+    if (
+        key === "w" ||
+        key === "a" ||
+        key === "s" ||
+        key === "d" ||
+        e.key.startsWith("Arrow") ||
+        key === "r"
+    ) {
+        e.preventDefault();
+    }
+
+    if (key === "r") {
+        resetGame();
+        return;
+    }
+
+    /* PAC-MAN */
+    if (key === "w") setKey(pacman, "up", true);
+    if (key === "s") setKey(pacman, "down", true);
+    if (key === "a") setKey(pacman, "left", true);
+    if (key === "d") setKey(pacman, "right", true);
+
+    /* FANTASMA */
+    if (e.key === "ArrowUp") setKey(ghost, "up", true);
+    if (e.key === "ArrowDown") setKey(ghost, "down", true);
+    if (e.key === "ArrowLeft") setKey(ghost, "left", true);
+    if (e.key === "ArrowRight") setKey(ghost, "right", true);
+});
+
+
+document.addEventListener("keyup", e => {
+
+    const key = e.key.toLowerCase();
+
+    /* PAC-MAN */
+    if (key === "w") setKey(pacman, "up", false);
+    if (key === "s") setKey(pacman, "down", false);
+    if (key === "a") setKey(pacman, "left", false);
+    if (key === "d") setKey(pacman, "right", false);
+
+    /* FANTASMA */
+    if (e.key === "ArrowUp") setKey(ghost, "up", false);
+    if (e.key === "ArrowDown") setKey(ghost, "down", false);
+    if (e.key === "ArrowLeft") setKey(ghost, "left", false);
+    if (e.key === "ArrowRight") setKey(ghost, "right", false);
+});
+
+
+window.addEventListener("blur", () => {
+
+    for (const p of [pacman, ghost]) {
+
+        p.keys.up = false;
+        p.keys.down = false;
+        p.keys.left = false;
+        p.keys.right = false;
+
+        p.dir = {...DIR.NONE};
+    }
+});
+
+
+/* =========================
+   MOVIMENTO
+========================= */
+
+function updatePlayer(player, dt) {
+
+    const wanted = getPressedDirection(player);
+
+    /*
+        Se nenhuma tecla está pressionada,
+        para imediatamente.
+    */
+    if (wanted.x === 0 && wanted.y === 0) {
+        player.dir = {...DIR.NONE};
+        return;
+    }
+
+    player.dir = wanted;
+
+    const distance = player.speed * dt;
+
+    /*
+        Divide o movimento em pequenos passos.
+        Isso evita atravessar paredes quando o FPS cai.
+    */
+    const steps = Math.max(1, Math.ceil(distance / 0.04));
+    const stepDistance = distance / steps;
+
+    for (let i = 0; i < steps; i++) {
+
+        if (canMove(player, player.dir, stepDistance)) {
+
+            player.x += player.dir.x * stepDistance;
+            player.y += player.dir.y * stepDistance;
+
+        } else {
+
+            /*
+                Ao encontrar parede, para exatamente.
+                Não deixa o personagem ficar entrando
+                dentro da parede.
+            */
+            player.dir = {...DIR.NONE};
+            break;
+        }
+    }
+
+    /*
+        Mantém dentro do mapa.
+    */
+    player.x = Math.max(0.5, Math.min(COLS - 0.5, player.x));
+    player.y = Math.max(0.5, Math.min(ROWS - 0.5, player.y));
+}
+
+
+/* =========================
+   COMIDA
+========================= */
+
+function createDots() {
+
+    dots = [];
+
+    for (let row = 0; row < ROWS; row++) {
+
+        for (let col = 0; col < COLS; col++) {
+
+            if (map[row][col] === ".") {
+
+                /*
+                    Não coloca comida exatamente
+                    em cima dos personagens.
+                */
+                if (
+                    Math.abs(col + 0.5 - pacman.x) < 1 &&
+                    Math.abs(row + 0.5 - pacman.y) < 1
+                ) {
+                    continue;
+                }
+
+                dots.push({
+                    x: col + 0.5,
+                    y: row + 0.5
+                });
+            }
+        }
+    }
+}
+
+
+/* =========================
+   FRUTAS
+========================= */
+
+function createFruits() {
+
+    fruits = [];
+
+    const positions = [
+        [3, 3],
+        [17, 3],
+        [3, 9],
+        [17, 9],
+        [10, 3],
+        [10, 9]
+    ];
+
+    positions.forEach((pos, index) => {
+
+        const col = pos[0];
+        const row = pos[1];
+
+        if (!isWall(col, row)) {
+
+            const fruit = fruitTypes[index % fruitTypes.length];
+
+            fruits.push({
+                x: col + 0.5,
+                y: row + 0.5,
+                emoji: fruit.emoji,
+                value: fruit.value,
+                pulse: Math.random() * Math.PI * 2
+            });
+        }
+    });
+}
+
+
+/* =========================
+   COLISÕES
+========================= */
+
+function distance(a, b) {
+
+    return Math.hypot(
+        a.x - b.x,
+        a.y - b.y
+    );
+}
+
+
+function collectDots() {
+
+    for (let i = dots.length - 1; i >= 0; i--) {
+
+        if (distance(pacman, dots[i]) < 0.38) {
+
+            dots.splice(i, 1);
+
+            score += 10;
+
+            document.getElementById("score").textContent = score;
+
+            if (dots.length === 0) {
+                endGame(
+                    "PAC-MAN VENCEU!",
+                    "Você comeu todos os pontos!"
+                );
+            }
+        }
+    }
+}
+
+
+function collectFruits() {
+
+    for (let i = fruits.length - 1; i >= 0; i--) {
+
+        if (distance(pacman, fruits[i]) < 0.55) {
+
+            score += fruits[i].value;
+
+            fruits.splice(i, 1);
+
+            document.getElementById("score").textContent = score;
+        }
+    }
+
+    document.getElementById("remaining").textContent =
+        fruits.length;
+}
+
+
+function checkGhostCollision() {
+
+    if (distance(pacman, ghost) < 0.62) {
+
+        endGame(
+            "O FANTASMA PEGOU!",
+            "O Pac-Man foi alcançado."
+        );
+    }
+}
+
+
+/* =========================
+   DESENHO
+========================= */
+
+function drawMaze() {
+
+    for (let row = 0; row < ROWS; row++) {
+
+        for (let col = 0; col < COLS; col++) {
+
+            const x = col * cell;
+            const y = row * cell;
+
+            if (isWall(col, row)) {
+
+                ctx.fillStyle = "#07176b";
+                ctx.fillRect(x, y, cell, cell);
+
+                ctx.strokeStyle = "#174cff";
+                ctx.lineWidth = 1.5;
+
+                ctx.strokeRect(
+                    x + 1,
+                    y + 1,
+                    cell - 2,
+                    cell - 2
+                );
+
+            } else {
+
+                ctx.fillStyle = "#02040d";
+                ctx.fillRect(x, y, cell, cell);
+            }
+        }
+    }
+}
+
+
+function drawDots() {
+
+    for (const dot of dots) {
+
+        ctx.beginPath();
+
+        ctx.arc(
+            dot.x * cell,
+            dot.y * cell,
+            Math.max(2, cell * 0.075),
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fillStyle = "#fff6a0";
+        ctx.shadowColor = "#fff6a0";
+        ctx.shadowBlur = 7;
+
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+    }
+}
+
+
+function drawFruits(time) {
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    for (const fruit of fruits) {
+
+        const pulse =
+            1 + Math.sin(time / 150 + fruit.pulse) * 0.08;
+
+        ctx.font = `${cell * 0.62 * pulse}px Arial`;
+
+        ctx.fillText(
+            fruit.emoji,
+            fruit.x * cell,
+            fruit.y * cell
+        );
+    }
+}
+
+
+function drawPacman(time) {
+
+    const x = pacman.x * cell;
+    const y = pacman.y * cell;
+
+    const radius = cell * 0.36;
+
+    let angle = 0;
+
+    if (pacman.dir.x === 1) angle = 0;
+    if (pacman.dir.x === -1) angle = Math.PI;
+    if (pacman.dir.y === -1) angle = -Math.PI / 2;
+    if (pacman.dir.y === 1) angle = Math.PI / 2;
+
+    const mouth =
+        0.18 + Math.abs(Math.sin(time / 100)) * 0.18;
+
+    ctx.save();
+
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+
+    ctx.beginPath();
+
+    ctx.moveTo(0, 0);
+
+    ctx.arc(
+        0,
+        0,
+        radius,
+        mouth,
+        Math.PI * 2 - mouth
+    );
+
+    ctx.closePath();
+
+    ctx.fillStyle = "#ffe500";
+    ctx.shadowColor = "#ffe500";
+    ctx.shadowBlur = 14;
+
+    ctx.fill();
+
+    ctx.restore();
+
+    ctx.shadowBlur = 0;
+}
+
+
+function drawGhost() {
+
+    const x = ghost.x * cell;
+    const y = ghost.y * cell;
+
+    const r = cell * 0.35;
+
+    ctx.save();
+
+    ctx.translate(x, y);
+
+    ctx.beginPath();
+
+    ctx.arc(
+        0,
+        -r * 0.05,
+        r,
+        Math.PI,
+        0
+    );
+
+    ctx.lineTo(r, r * 0.95);
+
+    ctx.lineTo(r * 0.55, r * 0.7);
+
+    ctx.lineTo(0, r * 0.95);
+
+    ctx.lineTo(-r * 0.55, r * 0.7);
+
+    ctx.lineTo(-r, r * 0.95);
+
+    ctx.closePath();
+
+    ctx.fillStyle = ghost.color;
+    ctx.shadowColor = ghost.color;
+    ctx.shadowBlur = 15;
+
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+
+    /*
+        Olhos
+    */
+    ctx.fillStyle = "white";
+
+    ctx.beginPath();
+    ctx.arc(-r * 0.38, -r * 0.1, r * 0.25, 0, Math.PI * 2);
+    ctx.arc(r * 0.38, -r * 0.1, r * 0.25, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#1824b8";
+
+    ctx.beginPath();
+    ctx.arc(-r * 0.38, -r * 0.1, r * 0.11, 0, Math.PI * 2);
+    ctx.arc(r * 0.38, -r * 0.1, r * 0.11, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+
+/* =========================
+   GAME LOOP
+========================= */
+
+function gameLoop(time) {
+
+    const dt = Math.min(
+        (time - lastTime) / 1000,
+        0.035
+    );
+
+    lastTime = time;
+
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width / devicePixelRatio,
+        canvas.height / devicePixelRatio
+    );
+
+    if (!gameOver) {
+
+        updatePlayer(pacman, dt);
+        updatePlayer(ghost, dt);
+
+        collectDots();
+        collectFruits();
+        checkGhostCollision();
+    }
+
+    drawMaze();
+    drawDots();
+    drawFruits(time);
+    drawPacman(time);
+    drawGhost();
+
+    requestAnimationFrame(gameLoop);
+}
+
+
+/* =========================
+   FIM / RESET
+========================= */
+
+function endGame(title, text) {
+
+    if (gameOver) return;
+
+    gameOver = true;
+
+    document.getElementById("messageTitle").textContent = title;
+    document.getElementById("messageText").textContent =
+        `${text} Pontuação: ${score}`;
+
+    document
+        .getElementById("message")
+        .classList.add("show");
+}
+
+
+function resetGame() {
+
+    gameOver = false;
+
+    score = 0;
+
+    pacman.x = 1.5;
+    pacman.y = 1.5;
+    pacman.dir = {...DIR.NONE};
+
+    ghost.x = 19.5;
+    ghost.y = 11.5;
+    ghost.dir = {...DIR.NONE};
+
+    pacman.keys.up = false;
+    pacman.keys.down = false;
+    pacman.keys.left = false;
+    pacman.keys.right = false;
+
+    ghost.keys.up = false;
+    ghost.keys.down = false;
+    ghost.keys.left = false;
+    ghost.keys.right = false;
+
+    document.getElementById("score").textContent = "0";
+
+    document
+        .getElementById("message")
+        .classList.remove("show");
+
+    createDots();
+    createFruits();
+
+    document.getElementById("remaining").textContent =
+        fruits.length;
+}
+
+
+/* =========================
+   INICIAR
+========================= */
+
+resizeCanvas();
+resetGame();
+
+requestAnimationFrame(gameLoop);
+
+</script>
+
+</body>
+</html>
